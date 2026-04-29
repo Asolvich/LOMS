@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+loms_data/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+.idea/
+.vscode/
