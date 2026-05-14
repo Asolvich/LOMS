@@ -31,6 +31,11 @@
   - сохранение и удаление модуля
   - загрузка сохраненного модуля
 
+- `src/components/ModulesEditor.jsx` - добавлен функционал:
+  - создание, сохранения, редактирования, обновления и запуска моделей
+- `backend/module_runner.py` — добавлен функционал:
+  - создание, сохранения, редактирования, обновления и запуска моделей
+
 ### React Flow drag-and-drop визуальный редактор
 - `src/App.jsx` — реализован полностью рабочий drag-and-drop визуальный редактор:
   - все компоненты можно ставить в любом месте, перемещать и взаимодействовать с ними
@@ -44,7 +49,7 @@
 ## Добавлено
 
 ### Python-редактор
-- `src/components/ModulesEditor.jsx` - Пользовательский модуль LOMS. 
+- `src/components/ModulesEditor.jsx` - пользовательский модуль LOMS. 
   - Пользовательский код имеет доступ к:
     - numpy, scipy.optimize (linprog, milp, LinearConstraint, Bounds)
     встроенному solver_engine — можно вызывать ModelTranslator, SolverAdapter напрямую.
@@ -52,7 +57,7 @@
     (например, текущий граф модели, последний результат).
     - переменной `result` — куда пользователь кладёт итог,
     он автоматически вернётся в UI.
-- `backend/module_runner.py` — Запускает пользовательский Python-код в отдельном subprocess
+- `backend/module_runner.py` — запускает пользовательский Python-код в отдельном subprocess
 с таймаутом и захватом stdout/stderr/result.
 
 ## Изменения
@@ -66,10 +71,10 @@
 `module:list`, `module:create`, `module:update`, `module:delete`.
 
 ### React/Vite frontend (`src/`)
-`src/ustils/lomsApi.js` - Добавлены обертки для работы с пользовательскими модулями
+`src/ustils/lomsApi.js` - добавлены обертки для работы с пользовательскими модулями
 
 ### React Flow drag-and-drop визуальный редактор
-- `src/components/Canvas.jsx` - Добавлен drag-and-drop визуальный редактор, 
+- `src/components/Canvas.jsx` - добавлен drag-and-drop визуальный редактор, 
 исправлен баг соединения переменных с ограничениями,
 Канвас теперь с скроллом: внутри есть огромная "сцена" (4000×3000).
 
