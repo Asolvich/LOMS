@@ -4,6 +4,7 @@ import Sidebar    from './components/Sidebar'
 import Toolbar    from './components/Toolbar'
 import Canvas     from './components/Canvas'
 import RightPanel from './components/RightPanel'
+import ModulesEditor from './components/ModulesEditor'
 import { LpTextModal, SaveModelModal, VersionsModal } from './components/Modals'
 import { ToastProvider, useToast } from './components/Toast'
 
@@ -23,6 +24,9 @@ function nextId(prefix, existingIds) {
 
 // Главный компонент
 function AppInner() {
+  // Навигация
+  const [view, setView] = useState('graph') // "graph" | "modules"
+
   // Состояние графа
   const [nodes,     setNodes]     = useState([])
   const [edges,     setEdges]     = useState([])
@@ -90,6 +94,7 @@ function AppInner() {
 
       await refreshSolverConfigs()
       await refreshSavedModels()
+      await refreshHistory()
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -101,15 +106,26 @@ function AppInner() {
     if (r.status === 'OK') setSavedModels(r.models || [])
   }, [])
 
+  // Загрузка конфигов
   const refreshSolverConfigs = useCallback(async () => {
     const r = await api.configList()
     if (r.status === 'OK') setSolverConfigs(r.configs || [])
   }, [])
 
+  // История глобальная или конкретно для текущей модели
   const refreshHistory = useCallback(async () => {
     const r = await api.resultList(currentModelId || undefined)
     if (r.status === 'OK') setHistory(r.results || [])
   }, [currentModelId])
+
+  const refreshHistoryForCurrent = useCallback(async () =>{
+    if (currentModelId){
+      const r = await api.resultList(currentModelId)
+      if (r.status === "OK") setHistory(r.results || [])
+    } else{
+      await refreshHistory()
+    }
+  }, [currentModelId, refreshHistory])
 
   // Управление узлами
   const addNode = useCallback((type) => {
@@ -265,7 +281,7 @@ function AppInner() {
       if (res.db_warning) toast.warning(res.db_warning)
 
       // Обновляем историю, если активна вкладка
-      if (currentModelId) refreshHistory()
+      refreshHistoryForCurrent()
     } catch (err) {
       setStatus('Error'); setStatusClass('st-error')
       toast.error(err?.message || String(err))
@@ -506,6 +522,7 @@ function AppInner() {
 
   // Render
   const selectedNode = nodes.find(n => n.id === selectedId) || null
+  const currentGraph = view === 'modules' ? buildGraph() : null // для context модулей
 
   return (
     <>
@@ -514,86 +531,147 @@ function AppInner() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontWeight: 700, fontSize: 16 }}>L</div>
         <h1>LOMS</h1>
-        <span className="badge">RC1</span>
+        <span className="badge">1.0.0w4</span>
         <span style={{ fontSize: 12, color: '#93c5fd', marginLeft: 4 }}>
           Low-code Optimization Modeling System
         </span>
-        {currentModelName && (
+
+        {currentModelName && view === 'graph' &&(
           <span style={{ fontSize: 12, color: '#bfdbfe', marginLeft: 12,
                          background: '#1d4ed8', padding: '2px 8px', borderRadius: 4 }}>
             📁 {currentModelName}
           </span>
         )}
         <div className="spacer"></div>
-
-        <button onClick={onSaveClick} title="Сохранить в базу данных">
-          💾 Сохранить
-        </button>
-        <button onClick={showVersions}
-                disabled={!currentModelId}
-                title={currentModelId ? 'Версии модели' : 'Сначала сохраните модель'}
-                style={{ marginLeft: 6 }}>
-          🕘 Версии
-        </button>
-        <button onClick={exportToFile} style={{ marginLeft: 6 }} title="Экспорт в .loms">
-          ⬇ Экспорт
-        </button>
-        <button onClick={importFromFile} style={{ marginLeft: 6 }} title="Открыть .loms">
-          📂 Открыть
-        </button>
+        
+        {view === 'graph' && (
+          <>
+            <button className="head-btn" onClick={onSaveClick} title="Сохранить в базу данных">
+              💾 Сохранить
+            </button>
+            <button className="head-btn" onClick={showVersions} disabled={!currentModelId}
+                    title={currentModelId ? 'Версии модели' : 'Сначала сохраните модель'}>
+              🕘 Версии
+            </button>
+            <button className="head-btn" onClick={exportToFile} title="Экспорт в .loms">
+              ⬇ Экспорт
+            </button>
+            <button className="head-btn" onClick={importFromFile} title="Открыть .loms">
+              📂 Открыть
+            </button>
+          </>
+        )}
       </header>
 
-      <div className="app">
-        <Sidebar
-          onAddNode={addNode}
-          onLoadTemplate={loadTemplate}
-          savedModels={savedModels}
-          onLoadSaved={loadSavedModel}
-          onDeleteSaved={deleteSavedModel}
-          onRefreshSaved={refreshSavedModels}
-        />
+            <div className="app">
+        {/* Левая панель — переключается между «Граф» и «Модули» */}
+        <div className="sidebar">
+          <div className="nav-tabs">
+            <button className={`nav-tab ${view === 'graph' ? 'active' : ''}`}
+                    onClick={() => setView('graph')}>
+              📐 Граф
+            </button>
+            <button className={`nav-tab ${view === 'modules' ? 'active' : ''}`}
+                    onClick={() => setView('modules')}>
+              🐍 Модули
+            </button>
+          </div>
 
-        <div className="main">
-          <Toolbar
-            direction={direction}
-            onDirectionChange={setDirection}
-            onValidate={validateModel}
-            onSolve={solveModel}
-            onShowLp={showLpText}
-            onClear={clearCanvas}
-            status={status}
-            statusClass={statusClass}
-            busy={busy}
-          />
+          {view === 'graph' && (
+            <div className="sidebar-scroll">
+              <Sidebar
+                onAddNode={addNode}
+                onLoadTemplate={loadTemplate}
+                savedModels={savedModels}
+                currentModelId={currentModelId}
+                onLoadSaved={loadSavedModel}
+                onDeleteSaved={deleteSavedModel}
+                onRefreshSaved={refreshSavedModels}
+              />
+            </div>
+          )}
 
-          <Canvas
-            nodes={nodes}
-            edges={edges}
-            direction={direction}
-            selectedId={selectedId}
-            onSelect={onSelect}
-            onNodeMove={onNodeMove}
-            onEdgeAdd={onEdgeAdd}
-            onEdgeCoeffEdit={onEdgeCoeffEdit}
-          />
+          {view === 'modules' && (
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <div className="sidebar-section">
+                <h3>О разделе</h3>
+                <p style={{ fontSize: 11, color: '#64748b', lineHeight: 1.6 }}>
+                  Здесь можно писать собственные Python-скрипты — анализировать модели,
+                  вызывать решатель, работать с данными.<br/><br/>
+                  Каждый модуль сохраняется в БД и запускается в изолированном
+                  процессе с таймаутом.
+                </p>
+              </div>
+              <div className="sidebar-section">
+                <h3>Доступно в коде</h3>
+                <p style={{ fontSize: 11, color: '#64748b', lineHeight: 1.7,
+                            fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
+                  • <b>numpy</b>, <b>scipy</b><br/>
+                  • <b>solver_engine</b><br/>
+                  • <b>context</b> — данные UI<br/>
+                  • <b>result</b> — куда положить итог
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
-        <RightPanel
-          selectedNode={selectedNode}
-          onUpdateNode={updateNodeProp}
-          onUpdateNodeNum={updateNodePropNum}
-          onDeleteSelected={deleteSelected}
-          result={result}
-          config={config}
-          onConfigChange={onConfigChange}
-          solverConfigs={solverConfigs}
-          onConfigPickFromDb={onConfigPickFromDb}
-          onExportCsv={exportCsv}
-          history={history}
-          onLoadHistoryEntry={loadHistoryEntry}
-          onRefreshHistory={refreshHistory}
-          currentModelId={currentModelId}
-        />
+        {/* Центральная область */}
+        <div className="main">
+          {view === 'graph' && (
+            <>
+              <Toolbar
+                direction={direction}
+                onDirectionChange={setDirection}
+                onValidate={validateModel}
+                onSolve={solveModel}
+                onShowLp={showLpText}
+                onClear={clearCanvas}
+                status={status}
+                statusClass={statusClass}
+                busy={busy}
+              />
+              <Canvas
+                nodes={nodes}
+                edges={edges}
+                direction={direction}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                onNodeMove={onNodeMove}
+                onEdgeAdd={onEdgeAdd}
+                onEdgeCoeffEdit={onEdgeCoeffEdit}
+              />
+            </>
+          )}
+
+          {view === 'modules' && (
+            <ModulesEditor
+              currentGraph={buildGraph()}
+              lastResult={result}
+            />
+          )}
+        </div>
+
+        {/* Правая панель — только в режиме графа */}
+        {view === 'graph' && (
+          <RightPanel
+            selectedNode={selectedNode}
+            onUpdateNode={updateNodeProp}
+            onUpdateNodeNum={updateNodePropNum}
+            onDeleteSelected={deleteSelected}
+            result={result}
+            config={config}
+            onConfigChange={onConfigChange}
+            solverConfigs={solverConfigs}
+            onConfigPickFromDb={onConfigPickFromDb}
+            onExportCsv={exportCsv}
+            history={history}
+            onLoadHistoryEntry={loadHistoryEntry}
+            onRefreshHistory={refreshHistoryForCurrent}
+            currentModelId={currentModelId}
+            savedModels={savedModels}
+          />
+        )}
       </div>
 
       <LpTextModal
