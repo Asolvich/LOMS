@@ -3,7 +3,6 @@ import { api } from '../utils/lomsApi'
 import { useToast } from './Toast'
 
 const STARTER_CODE = `# Пользовательский модуль LOMS
-# ─────────────────────────────────────────
 # Доступно:
 #   • numpy, scipy.optimize (linprog, milp, ...)
 #   • переменная "context" — данные от UI:
@@ -12,36 +11,16 @@ const STARTER_CODE = `# Пользовательский модуль LOMS
 #       context["models"]        — список сохранённых моделей
 #   • переменная "result"  — что положите, то и придёт в UI
 #
-# Пример: посчитать оптимальное решение текущей модели вручную
-# ─────────────────────────────────────────
+# Пример:
+print("Hello from user module")
 
-import sys
-sys.path.insert(0, "${LOMS_BACKEND_DIR}")
+x = 10
+y = 20
 
-from solver_engine import ModelTranslator, SolverAdapter, ResultFormatter
-import time
-
-graph = context.get("graph") or {"direction": "min", "nodes": [], "edges": []}
-
-t = ModelTranslator(graph)
-try:
-    t.translate()
-except Exception as ex:
-    print("Ошибка перевода:", ex)
-    result = {"error": str(ex)}
-else:
-    print(f"Переменных: {len(t.variables)}, ограничений: {len(t.constraints)}")
-    print(f"MILP: {t.is_milp()}")
-    print(t.lp_text())
-
-    adapter = SolverAdapter({"time_limit": 30, "gap_tolerance": 0.001})
-    fmt = ResultFormatter(t)
-    t0 = time.perf_counter()
-    raw = adapter.solve_milp(t.to_scipy_milp()) if t.is_milp() else adapter.solve_lp(t.to_scipy_lp())
-    res = fmt.format(raw, time.perf_counter() - t0)
-    result = res
-    print()
-    print("Status:", res["status"], "| z =", res["objective_value"])
+result = {
+    "sum": x + y,
+    "product": x * y,
+}
 `
 
 export default function ModulesEditor({ currentGraph, lastResult }) {
