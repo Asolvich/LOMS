@@ -3,7 +3,7 @@ LOMS Backend — Optimization Engine
 Release Candidate 1.0 (RC1)
 
 Version:    1.0-RC1
-Released:   03-04-2026
+Released:   
 Author:     LOMS Project
 
 Changes from Beta 0.1:
@@ -28,7 +28,7 @@ from scipy.optimize import linprog, milp, LinearConstraint, Bounds
 
 # Version
 __version__ = "1.0-RC1"
-__release_date__ = "03-04-2026"
+__release_date__ = ""
 
 SUPPORTED_ACTIONS = {"solve", "validate", "get-lp-text", "ping"}
 
@@ -60,6 +60,9 @@ class ModelTranslator:
         self.direction: str = "min"
         self._var_index: dict[str, int] = {}
         self._adj: dict[str, list[dict]] = {}
+        # Подсказка для пользователя о возможной неограниченности задачи —
+        # выставляется в validate(), используется в IPC-обработчике.
+        self.unbounded_hint: str | None = None
 
     def validate(self):
         nodes = self.graph.get("nodes", [])
@@ -75,11 +78,11 @@ class ModelTranslator:
                 "Добавьте хотя бы одну переменную.",
                 code="NO_VARIABLES")
 
-        if not con_nodes:
-            raise ValidationError(
-                "Граф не содержит ограничений",
-                "Добавьте хотя бы одно ограничение.",
-                code="NO_CONSTRAINTS")
+        # Ограничения теперь НЕобязательны — допускается безусловная
+        # оптимизация (например, поиск экстремума целевой функции
+        # на гиперпараллелепипеде, заданном границами переменных).
+        # При полном отсутствии ограничений и границ задача почти
+        # наверняка окажется неограниченной — SciPy вернёт Unbounded.
 
         if not obj_nodes:
             raise ValidationError(
@@ -104,6 +107,43 @@ class ModelTranslator:
                     f"Ограничение '{con.get('name', con['id'])}' не связано ни с одной переменной",
                     "Добавьте рёбра от переменных к ограничению.",
                     code="DISCONNECTED_CONSTRAINT")
+
+        # Предупреждение (не ошибка) о потенциально неограниченной задаче:
+        # сохраняем флаг, который потом подхватит обработчик solve/validate.
+        #
+        # ВАЖНО: текущая реализация to_scipy_lp/to_scipy_milp трактует
+        # lb=None как 0.0 (а не как -∞). Поэтому переменная без явной
+        # нижней границы фактически уже ограничена снизу нулём.
+        # Это значит, что для min с c>0 «бесконтрольного» хода вниз нет,
+        # а для max с c<0 — наоборот.
+        direction = self.graph.get("direction", "min")
+        self.unbounded_hint = None
+        if not con_nodes:
+            risky_vars = []
+            for v in var_nodes:
+                c = v.get("obj_coeff", 0)
+                lb = v.get("lb")
+                ub = v.get("ub")
+                # Эффективные границы с учётом дефолта lb=None -> 0:
+                eff_lb_minus_inf = (lb is not None and lb == float("-inf"))
+                eff_ub_plus_inf  = (ub is None)
+                # Для min: целевая уходит в +∞, если c<0 и ub=+∞;
+                #          уходит в -∞, если c>0 и lb=-∞.
+                # Для max — наоборот.
+                if direction == "min":
+                    if c < 0 and eff_ub_plus_inf: risky_vars.append(v.get("name"))
+                    if c > 0 and eff_lb_minus_inf: risky_vars.append(v.get("name"))
+                else:
+                    if c > 0 and eff_ub_plus_inf: risky_vars.append(v.get("name"))
+                    if c < 0 and eff_lb_minus_inf: risky_vars.append(v.get("name"))
+            if risky_vars:
+                self.unbounded_hint = (
+                    "Модель не содержит ограничений, при этом у переменных "
+                    + ", ".join(f"'{n}'" for n in risky_vars[:5])
+                    + " отсутствует соответствующая граница. "
+                    "Задача почти наверняка окажется неограниченной (Unbounded). "
+                    "Добавьте ограничения или границы переменных."
+                )
 
     def translate(self):
         self.validate()
@@ -220,6 +260,8 @@ class ModelTranslator:
                 terms.append(f"{c:+g} {name}")
         lines += [sense_str, "  obj: " + (" ".join(terms) or "0"), ""]
         lines.append("Subject To")
+        if not self.constraints:
+            lines.append("  \\ (ограничения отсутствуют)")
         for j, con in enumerate(self.constraints):
             row_terms = []
             for e in self._adj.get(con["id"], []):
@@ -366,7 +408,7 @@ def handle_command(cmd: dict) -> dict:
         }
 
     if action == "validate":
-        return {
+        result = {
             "status":        "Valid",
             "message":       "Модель корректна",
             "is_milp":       translator.is_milp(),
@@ -374,6 +416,9 @@ def handle_command(cmd: dict) -> dict:
             "n_constraints": len(translator.constraints),
             "version":       __version__,
         }
+        if translator.unbounded_hint:
+            result["warning"] = translator.unbounded_hint
+        return result
 
     if action == "get-lp-text":
         return {"status": "OK", "lp_text": translator.lp_text(), "version": __version__}
@@ -399,7 +444,11 @@ def handle_command(cmd: dict) -> dict:
             "version":         __version__,
         }
     t1 = time.perf_counter()
-    return formatter.format(raw, t1 - t0, warning=adapter.low_time_warning)
+    # Объединяем предупреждения от адаптера (низкий time_limit)
+    # и от транслятора (отсутствие ограничений, потенциальный Unbounded).
+    warnings = [w for w in (adapter.low_time_warning, translator.unbounded_hint) if w]
+    warning = " ".join(warnings) if warnings else None
+    return formatter.format(raw, t1 - t0, warning=warning)
 
 
 def main():
