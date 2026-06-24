@@ -28,7 +28,14 @@ export function ToastProvider({ children }) {
       {children}
       <div className="toast-container">
         {items.map(t => (
-          <div key={t.id} className={`toast toast-${t.type}`}>{t.message}</div>
+          <div 
+          key={t.id} 
+          className={`toast toast-${t.type}`}
+          onClick={() =>
+          setItems(arr => arr.filter(x => x.id !== t.id))
+          }>
+              {t.message}
+            </div>
         ))}
       </div>
     </ToastCtx.Provider>
