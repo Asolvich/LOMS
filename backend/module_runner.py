@@ -30,27 +30,32 @@ import tempfile
 import textwrap
 from pathlib import Path
 
-
 # Шаблон-обёртка, в которую инлайним пользовательский код.
 # Запускается в отдельном Python-процессе. Stdin содержит JSON-context.
 # Размещён без отступов (без textwrap.dedent), чтобы избежать сюрпризов.
 _RUNNER_TEMPLATE = '''\
-import json, sys, traceback, io
+import json, os, sys, traceback, io
 from contextlib import redirect_stdout, redirect_stderr
-
+ 
+# Добавляем папку backend в sys.path — чтобы можно было импортировать
+# solver_engine, db и другие модули LOMS из пользовательского кода.
+_LOMS_BACKEND = os.environ.get("LOMS_BACKEND_DIR", "")
+if _LOMS_BACKEND and _LOMS_BACKEND not in sys.path:
+    sys.path.insert(0, _LOMS_BACKEND)
+ 
 # Читаем context из stdin
 try:
     _ctx_raw = sys.stdin.read()
     context = json.loads(_ctx_raw) if _ctx_raw.strip() else {}
 except Exception:
     context = {}
-
+ 
 result = None
-
+ 
 _stdout_buf = io.StringIO()
 _stderr_buf = io.StringIO()
 _err = None
-
+ 
 try:
     with redirect_stdout(_stdout_buf), redirect_stderr(_stderr_buf):
         # ─────── BEGIN USER CODE ───────
@@ -60,7 +65,7 @@ except SystemExit as ex:
     _err = "SystemExit: " + str(ex)
 except BaseException:
     _err = traceback.format_exc()
-
+ 
 # Безопасная JSON-сериализация result
 def _safe(o, depth=0):
     if depth > 6:
@@ -80,7 +85,7 @@ def _safe(o, depth=0):
     except Exception:
         pass
     return repr(o)
-
+ 
 payload = {
     "stdout": _stdout_buf.getvalue(),
     "stderr": _stderr_buf.getvalue(),
@@ -108,6 +113,7 @@ def run_user_module(code: str,
         "elapsed": float,
       }
     """
+
     import time
     if context is None:
         context = {}
@@ -136,7 +142,7 @@ def run_user_module(code: str,
             capture_output=True,
             text=True,
             timeout=timeout,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "LOMS_BACKEND_DIR": os.path.dirname(os.path.abspath(__file__))},
         )
     except subprocess.TimeoutExpired as ex:
         try: os.unlink(runner_path)
