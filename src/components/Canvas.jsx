@@ -16,7 +16,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
  * 
  *  TODO:
  *  Сделать перемещение на колесико или ПКМ по канвасу
- *  Сделать более удобный интерфейс с историей
+ *  Сделать рабочие горячие клавиши
  */
 
 // Размеры виртуальной сцены — большое полотно, по которому скроллят.
@@ -34,6 +34,8 @@ export default function Canvas({
 
   const dragRef  = useRef(null)         // { nodeId, ox, oy }
   const drawRef  = useRef(null)         // { sourceId, mx, my }
+
+  const panRef = useRef(null)           // { startX, srartY, scrollLeft, scrollTop }
 
   // Текущий target при рисовании ребра — для подсветки drop-зоны.
   const [hoverTarget, setHoverTarget] = useState(null)
@@ -161,11 +163,49 @@ export default function Canvas({
     }
   }, [nodes, onNodeMove, onEdgeAdd, hoverTarget, clientToScene, rerender])
 
-  // Снять выделение по клику в пустую область
+  // Снять выделение по клику в пустую область и передвижение на ПКМ
   const onSceneMouseDown = (e) => {
     if (e.target === innerRef.current || e.target.tagName?.toLowerCase() === 'svg') {
       onSelect(null)
     }
+    if (e.button === 2){
+      panRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        scrollLeft: sceneRef.current.scrollLeft,
+        scrollTop: sceneRef.current.scrollTop
+      }
+      return
+    }
+  }
+
+  // Передвижение на ПКМ
+  const onSceneMouseMove = (e) => {
+    if (panRef.current){
+      const dx = e.clientX - panRef.current.startX
+      const dy = e.clientY - panRef.current.startY
+
+      sceneRef.current.scrollLeft =
+        panRef.current.scrollLeft - dx
+
+      sceneRef.current.scrollTop =
+        panRef.current.scrollTop - dy
+
+  return
+    }
+  }
+
+  const onSceneMouseUp = (e) => {
+    panRef.current = null
+    useEffect(() => {
+      const preventMenu = e => e.preventDefault()
+
+      window.addEventListener('contextmenu', preventMenu)
+
+      return () => {
+        window.removeEventListener('contextmenu', preventMenu)
+      }
+    }, [])
   }
 
   // Хелперы рендера рёбер
@@ -235,7 +275,9 @@ export default function Canvas({
         <div className="canvas-scene"
              ref={innerRef}
              style={{ width: SCENE_W, height: SCENE_H }}
-             onMouseDown={onSceneMouseDown}>
+             onMouseDown={onSceneMouseDown}
+             onMouseMove={onSceneMouseMove}
+             onMouseUp={onSceneMouseUp}>
           <svg className="edges"
                width={SCENE_W} height={SCENE_H}
                viewBox={`0 0 ${SCENE_W} ${SCENE_H}`}>
@@ -287,7 +329,9 @@ export default function Canvas({
                   (isHover ? ' drop-target' : '')
                 }
                 style={{ left: n.x + 'px', top: n.y + 'px' }}
-                onMouseDown={(e) => startDrag(e, n.id)}
+                onMouseDown={(e) => {
+                  if (e.button === 0) return startDrag(e, n.id)}
+                }
                 onClick={(e) => {
                   if (e.target.classList.contains('node-port')) return
                   onSelect(n.id)
