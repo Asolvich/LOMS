@@ -1,8 +1,8 @@
 """
-LOMS IPC Server — v1.0 Week 2
+LOMS IPC Server — v1.0 Week 1
 Reads JSON commands from stdin, writes JSON responses to stdout.
 
-Supported actions (Week 2):
+Supported actions (Week 1):
   ping              — health check
   db:init           — initialize database, return db path
   db:stats          — database statistics
@@ -15,13 +15,8 @@ Supported actions (Week 2):
   model:restore     — restore model to a version
   solver_config:list    — list solver configurations
   solver_config:default — get default solver config
-  solver_config:create - create new config
   result:list       — list solve history
   result:get        — get single result
-  module:list       - list modules
-  module:create     - create new model
-  module:update     - update model
-  module:delete     - delete model
   solve             — solve an optimization model (+ auto-save result)
   validate          — validate model graph
   get-lp-text       — get LP notation
@@ -224,7 +219,7 @@ def handle(cmd: dict) -> dict:
         ok = UserModuleRepo.delete(cmd.get("id"))
         return {"status": "OK" if ok else "Error",
                 "deleted_id": cmd.get("id") if ok else None}
-
+    
     if action == "module:get":
         ensure_db()
         m = UserModuleRepo.get(cmd.get("id"))
@@ -281,12 +276,10 @@ def handle(cmd: dict) -> dict:
                    f"Доступные: ping, db:init, db:stats, "
                    f"model:create/list/get/update/delete/versions/restore, "
                    f"solver_config:list/default/create, "
-                   f"result:list/get, "
-                   f"module:list/get/create/update/delete/run, "
+                   f"result:list/get, module:list/create/update/delete, "
                    f"solve, validate, get-lp-text"),
         "version": __version__,
     }
-
 
 def _handle_solver(action: str, cmd: dict) -> dict:
     """Solver pipeline: translate → solve → save result to DB."""
@@ -318,13 +311,16 @@ def _handle_solver(action: str, cmd: dict) -> dict:
         }
 
     if action == "validate":
-        return {
+        out = {
             "status":        "Valid",
             "is_milp":       translator.is_milp(),
             "n_vars":        len(translator.variables),
             "n_constraints": len(translator.constraints),
             "version":       __version__,
         }
+        if translator.unbounded_hint:
+            out["warning"] = translator.unbounded_hint
+        return out
 
     if action == "get-lp-text":
         return {"status": "OK", "lp_text": translator.lp_text(), "version": __version__}
@@ -345,8 +341,10 @@ def _handle_solver(action: str, cmd: dict) -> dict:
             "solve_time_sec": round(time.perf_counter() - t0, 4),
             "version": __version__,
         }
-    result = formatter.format(raw, time.perf_counter() - t0,
-                              warning=adapter.low_time_warning)
+    # Объединяем предупреждения адаптера и транслятора
+    warnings = [w for w in (adapter.low_time_warning, translator.unbounded_hint) if w]
+    warning = " ".join(warnings) if warnings else None
+    result = formatter.format(raw, time.perf_counter() - t0, warning=warning)
 
     # Auto-save to DB if model_id provided
     model_id = cmd.get("model_id")
@@ -409,4 +407,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
